@@ -12,13 +12,16 @@ import (
 	"modul-4/middleware"
 )
 
-// Register memetakan URL ke method pada service.
-func Register(app *fiber.App, pool *pgxpool.Pool, studentService *service.StudentService) {
+func Register(
+	app *fiber.App,
+	pool *pgxpool.Pool,
+	studentService *service.StudentService,
+	achievementService *service.AchievementService,
+) {
 	api := app.Group("/api/v1")
 
 	api.Get("/health", healthCheck(pool))
 
-	// Terapkan middleware RequireJSON khusus untuk grup /students
 	students := api.Group("/students", middleware.RequireJSON)
 	students.Get("/", studentService.List)
 	students.Get("/:id", studentService.Get)
@@ -26,9 +29,13 @@ func Register(app *fiber.App, pool *pgxpool.Pool, studentService *service.Studen
 	students.Put("/:id", studentService.Replace)
 	students.Patch("/:id", studentService.Patch)
 	students.Delete("/:id", studentService.Delete)
+
+	achievements := api.Group("/achievements", middleware.RequireJSON)
+	achievements.Get("/:id", achievementService.Get)
+	achievements.Post("/", achievementService.Create)
 }
 
-// healthCheck mengecek status server dan koneksi database.
+// healthCheck mengecek status server dan koneksi database
 func healthCheck(pool *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
@@ -41,3 +48,4 @@ func healthCheck(pool *pgxpool.Pool) fiber.Handler {
 		return helper.Success(c, fiber.StatusOK, "server dan database berjalan", nil)
 	}
 }
+

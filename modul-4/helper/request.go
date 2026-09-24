@@ -5,9 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
 	"modul-4/app/model"
-
 	"github.com/gofiber/fiber/v2"
 )
 

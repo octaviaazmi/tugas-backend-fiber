@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"modul-4/app/model"
 
@@ -37,6 +38,7 @@ func (r *studentRepository) FindAll(ctx context.Context, q model.ListQuery) ([]m
 	var total int
 	err := r.db.QueryRow(ctx, "SELECT COUNT(id) FROM students").Scan(&total)
 	if err != nil {
+		slog.Error("FindAll - count error", "error", err) // <-- LOG
 		return nil, 0, err
 	}
 
@@ -45,6 +47,7 @@ func (r *studentRepository) FindAll(ctx context.Context, q model.ListQuery) ([]m
 
 	rows, err := r.db.Query(ctx, query, q.Limit, offset)
 	if err != nil {
+		slog.Error("FindAll - query error", "error", err) // <-- LOG
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -53,9 +56,15 @@ func (r *studentRepository) FindAll(ctx context.Context, q model.ListQuery) ([]m
 	for rows.Next() {
 		var s model.Student
 		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt); err != nil {
+			slog.Error("FindAll - scan error", "error", err) // <-- LOG
 			return nil, 0, err
 		}
 		students = append(students, s)
+	}
+
+	if err = rows.Err(); err != nil {
+		slog.Error("FindAll - rows error", "error", err) // <-- LOG
+		return nil, 0, err
 	}
 
 	return students, total, nil
@@ -70,6 +79,7 @@ func (r *studentRepository) FindByID(ctx context.Context, id int) (model.Student
 		if errors.Is(err, pgx.ErrNoRows) {
 			return s, ErrNotFound
 		}
+		slog.Error("FindByID - query error", "error", err) // <-- LOG
 		return s, err
 	}
 	return s, nil
@@ -84,6 +94,7 @@ func (r *studentRepository) Create(ctx context.Context, student model.Student) (
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return student, ErrDuplicate
 		}
+		slog.Error("Create - insert error", "error", err) // <-- LOG
 		return student, err
 	}
 	return student, nil
@@ -101,6 +112,7 @@ func (r *studentRepository) Update(ctx context.Context, student model.Student) (
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return student, ErrDuplicate
 		}
+		slog.Error("Update - update error", "error", err) // <-- LOG
 		return student, err
 	}
 	return student, nil
@@ -109,6 +121,7 @@ func (r *studentRepository) Update(ctx context.Context, student model.Student) (
 func (r *studentRepository) Delete(ctx context.Context, id int) error {
 	cmd, err := r.db.Exec(ctx, "DELETE FROM students WHERE id = $1", id)
 	if err != nil {
+		slog.Error("Delete - delete error", "error", err) // <-- LOG
 		return err
 	}
 	if cmd.RowsAffected() == 0 {

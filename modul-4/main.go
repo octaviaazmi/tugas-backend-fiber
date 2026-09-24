@@ -32,8 +32,11 @@ func main() {
 	studentRepository := repository.NewStudentRepository(pool)
 	studentService := service.NewStudentService(studentRepository)
 
+	achievementRepository := repository.NewAchievementRepository(pool)
+	achievementService := service.NewAchievementService(achievementRepository)
+
 	// 4. Aplikasi
-	app := config.NewApp(logger, pool, studentService)
+	app := config.NewApp(logger, pool, studentService, achievementService)
 	port := config.GetEnv("APP_PORT", "3000")
 
 	go func() {

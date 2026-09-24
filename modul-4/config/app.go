@@ -12,17 +12,20 @@ import (
 	"modul-4/route"
 )
 
-// NewApp merakit aplikasi: membuat instance Fiber, memasang middleware, dan mendaftarkan route.
-func NewApp(logger *slog.Logger, pool *pgxpool.Pool, studentService *service.StudentService) *fiber.App {
+func NewApp(
+	logger *slog.Logger,
+	pool *pgxpool.Pool,
+	studentService *service.StudentService,
+	achievementService *service.AchievementService,
+) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:      GetEnv("APP_NAME", "Praktikum Backend Lanjut"),
 		ErrorHandler: newErrorHandler(logger),
 	})
 
 	middleware.Register(app, logger)
-	route.Register(app, pool, studentService)
+	route.Register(app, pool, studentService, achievementService)
 
-	// Penampung terakhir untuk URL yang tidak dikenal
 	app.Use(func(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusNotFound, "endpoint tidak ditemukan")
 	})
