@@ -3,15 +3,22 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 
 	"siakad-mini-fiber/config"
 	"siakad-mini-fiber/database"
+	"siakad-mini-fiber/middleware"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 func main() {
 	config.LoadEnv()
+
+	logger := slog.New(slog.NewJSONHandler(log.Writer(), &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
 
 	ctx := context.Background()
 
@@ -29,6 +36,8 @@ func main() {
 		AppName:   config.GetEnv("APP_NAME", "siakad-mini"),
 		BodyLimit: 1 * 1024 * 1024,
 	})
+
+	middleware.Register(app, config.GetEnv("ALLOWED_ORIGINS", ""))
 
 	app.Get("/ping", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"message": "pong"})
