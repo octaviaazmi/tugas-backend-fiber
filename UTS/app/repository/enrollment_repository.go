@@ -14,8 +14,11 @@ import (
 type EnrollmentRepository interface {
 	FindByID(ctx context.Context, id int64) (model.Enrollment, error)
 	Exists(ctx context.Context, studentID, courseID int64, tahunAkademik string) (bool, error)
+	ExistsWithTx(ctx context.Context, tx pgx.Tx, studentID, courseID int64, tahunAkademik string) (bool, error)
 	TotalSKS(ctx context.Context, studentID int64, tahunAkademik string) (int, error)
+	TotalSKSWithTx(ctx context.Context, tx pgx.Tx, studentID int64, tahunAkademik string) (int, error)
 	Create(ctx context.Context, e model.Enrollment) (model.Enrollment, error)
+	CreateWithTx(ctx context.Context, tx pgx.Tx, e model.Enrollment) (model.Enrollment, error)
 	Delete(ctx context.Context, id int64) error
 	FindByStudent(ctx context.Context, studentID int64) ([]model.EnrollmentDetail, error)
 }
@@ -54,8 +57,16 @@ func (r *enrollmentPostgresRepository) FindByID(ctx context.Context, id int64) (
 }
 
 func (r *enrollmentPostgresRepository) Exists(ctx context.Context, studentID, courseID int64, tahunAkademik string) (bool, error) {
+	return existsEnrollment(ctx, r.pool, studentID, courseID, tahunAkademik)
+}
+
+func (r *enrollmentPostgresRepository) ExistsWithTx(ctx context.Context, tx pgx.Tx, studentID, courseID int64, tahunAkademik string) (bool, error) {
+	return existsEnrollment(ctx, tx, studentID, courseID, tahunAkademik)
+}
+
+func existsEnrollment(ctx context.Context, q queryRower, studentID, courseID int64, tahunAkademik string) (bool, error) {
 	var count int
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT COUNT(*) FROM enrollments
 		 WHERE student_id = $1 AND course_id = $2 AND tahun_akademik = $3`,
 		studentID, courseID, tahunAkademik,
@@ -67,8 +78,16 @@ func (r *enrollmentPostgresRepository) Exists(ctx context.Context, studentID, co
 }
 
 func (r *enrollmentPostgresRepository) TotalSKS(ctx context.Context, studentID int64, tahunAkademik string) (int, error) {
+	return totalSKS(ctx, r.pool, studentID, tahunAkademik)
+}
+
+func (r *enrollmentPostgresRepository) TotalSKSWithTx(ctx context.Context, tx pgx.Tx, studentID int64, tahunAkademik string) (int, error) {
+	return totalSKS(ctx, tx, studentID, tahunAkademik)
+}
+
+func totalSKS(ctx context.Context, q queryRower, studentID int64, tahunAkademik string) (int, error) {
 	var total int
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT COALESCE(SUM(c.sks), 0)
 		 FROM enrollments e
 		 JOIN courses c ON c.id = e.course_id
@@ -82,7 +101,15 @@ func (r *enrollmentPostgresRepository) TotalSKS(ctx context.Context, studentID i
 }
 
 func (r *enrollmentPostgresRepository) Create(ctx context.Context, e model.Enrollment) (model.Enrollment, error) {
-	err := r.pool.QueryRow(ctx,
+	return createEnrollment(ctx, r.pool, e)
+}
+
+func (r *enrollmentPostgresRepository) CreateWithTx(ctx context.Context, tx pgx.Tx, e model.Enrollment) (model.Enrollment, error) {
+	return createEnrollment(ctx, tx, e)
+}
+
+func createEnrollment(ctx context.Context, q queryRower, e model.Enrollment) (model.Enrollment, error) {
+	err := q.QueryRow(ctx,
 		`INSERT INTO enrollments (student_id, course_id, tahun_akademik)
 		 VALUES ($1, $2, $3)
 		 RETURNING id, created_at`,

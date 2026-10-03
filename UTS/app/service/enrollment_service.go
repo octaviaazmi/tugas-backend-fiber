@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"siakad-mini-fiber/app/model"
 	"siakad-mini-fiber/app/repository"
@@ -16,20 +17,22 @@ import (
 var reTahunAkademik = regexp.MustCompile(`^\d{4}/\d{4}-(Ganjil|Genap)$`)
 
 type EnrollmentService struct {
+	pool     *pgxpool.Pool
 	enrolls  repository.EnrollmentRepository
 	students repository.StudentRepository
 	courses  repository.CourseRepository
 }
 
 func NewEnrollmentService(
+	pool *pgxpool.Pool,
 	enrolls repository.EnrollmentRepository,
 	students repository.StudentRepository,
 	courses repository.CourseRepository,
 ) *EnrollmentService {
-	return &EnrollmentService{enrolls: enrolls, students: students, courses: courses}
+	return &EnrollmentService{pool: pool, enrolls: enrolls, students: students, courses: courses}
 }
 
-// POST /enrollments
+// POST /enrollments — dengan transaction + row locking
 func (s *EnrollmentService) Create(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
@@ -55,14 +58,24 @@ func (s *EnrollmentService) Create(c *fiber.Ctx) error {
 		})
 	}
 
-	// Cek course
-	course, err := s.courses.FindByID(ctx, req.CourseID)
+	// ---- Transaction dimulai ----
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return helper.FailValidation(c, map[string]string{"course_id": "Mata kuliah tidak ditemukan"})
+		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
+	}
+	defer tx.Rollback(ctx)
+
+	// Row locking: ambil course dengan FOR UPDATE
+	course, err := s.courses.FindByIDForUpdate(ctx, tx, req.CourseID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return helper.FailValidation(c, map[string]string{"course_id": "Mata kuliah tidak ditemukan"})
+		}
+		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal mengambil data mata kuliah")
 	}
 
-	// Cek duplikasi
-	exists, err := s.enrolls.Exists(ctx, student.ID, course.ID, req.TahunAkademik)
+	// Cek duplikasi (di dalam transaction)
+	exists, err := s.enrolls.ExistsWithTx(ctx, tx, student.ID, course.ID, req.TahunAkademik)
 	if err != nil {
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memeriksa data")
 	}
@@ -71,8 +84,8 @@ func (s *EnrollmentService) Create(c *fiber.Ctx) error {
 			"Mata kuliah sudah pernah diambil pada tahun akademik ini")
 	}
 
-	// Cek kuota
-	terisi, err := s.courses.CountTerisi(ctx, course.ID)
+	// Cek kuota (di dalam transaction, row sudah di-lock)
+	terisi, err := s.courses.CountTerisiWithTx(ctx, tx, course.ID)
 	if err != nil {
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memeriksa kuota")
 	}
@@ -82,7 +95,7 @@ func (s *EnrollmentService) Create(c *fiber.Ctx) error {
 
 	// Cek batas SKS
 	batas := hitungBatasSKS(student.IPKTerakhir)
-	totalSKS, err := s.enrolls.TotalSKS(ctx, student.ID, req.TahunAkademik)
+	totalSKS, err := s.enrolls.TotalSKSWithTx(ctx, tx, student.ID, req.TahunAkademik)
 	if err != nil {
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memeriksa SKS")
 	}
@@ -95,7 +108,8 @@ func (s *EnrollmentService) Create(c *fiber.Ctx) error {
 			fmt.Sprintf("Total SKS melebihi batas. Sisa SKS Anda: %d", sisa))
 	}
 
-	enrollment, err := s.enrolls.Create(ctx, model.Enrollment{
+	// Insert enrollment
+	enrollment, err := s.enrolls.CreateWithTx(ctx, tx, model.Enrollment{
 		StudentID:     student.ID,
 		CourseID:      course.ID,
 		TahunAkademik: req.TahunAkademik,
@@ -106,6 +120,10 @@ func (s *EnrollmentService) Create(c *fiber.Ctx) error {
 				"Mata kuliah sudah pernah diambil pada tahun akademik ini")
 		}
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal menyimpan enrollment")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
 	return helper.Created(c, "Berhasil mengambil mata kuliah", fiber.Map{

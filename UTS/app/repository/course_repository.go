@@ -14,7 +14,9 @@ import (
 type CourseRepository interface {
 	FindAll(ctx context.Context, q model.CourseListQuery) ([]model.CourseWithKuota, error)
 	FindByID(ctx context.Context, id int64) (model.Course, error)
+	FindByIDForUpdate(ctx context.Context, tx pgx.Tx, id int64) (model.Course, error)
 	CountTerisi(ctx context.Context, courseID int64) (int, error)
+	CountTerisiWithTx(ctx context.Context, tx pgx.Tx, courseID int64) (int, error)
 }
 
 type coursePostgresRepository struct {
@@ -65,7 +67,6 @@ func (r *coursePostgresRepository) FindAll(ctx context.Context, q model.CourseLi
 		); err != nil {
 			return nil, fmt.Errorf("membaca row course: %w", err)
 		}
-
 		if q.Available && c.SisaKuota <= 0 {
 			continue
 		}
@@ -74,13 +75,32 @@ func (r *coursePostgresRepository) FindAll(ctx context.Context, q model.CourseLi
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("membaca hasil query course: %w", err)
 	}
-
 	return result, nil
 }
 
 func (r *coursePostgresRepository) FindByID(ctx context.Context, id int64) (model.Course, error) {
+	return findCourse(ctx, r.pool, id)
+}
+
+// FindByIDForUpdate — row locking, khusus dipakai di dalam transaction
+func (r *coursePostgresRepository) FindByIDForUpdate(ctx context.Context, tx pgx.Tx, id int64) (model.Course, error) {
 	var c model.Course
-	err := r.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
+		`SELECT id, kode_mk, nama_mk, sks, semester, kuota, created_at, updated_at
+		 FROM courses WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&c.ID, &c.KodeMK, &c.NamaMK, &c.SKS, &c.Semester, &c.Kuota, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.Course{}, ErrNotFound
+		}
+		return model.Course{}, fmt.Errorf("mengambil course for update: %w", err)
+	}
+	return c, nil
+}
+
+func findCourse(ctx context.Context, q queryRower, id int64) (model.Course, error) {
+	var c model.Course
+	err := q.QueryRow(ctx,
 		`SELECT id, kode_mk, nama_mk, sks, semester, kuota, created_at, updated_at
 		 FROM courses WHERE id = $1`, id,
 	).Scan(&c.ID, &c.KodeMK, &c.NamaMK, &c.SKS, &c.Semester, &c.Kuota, &c.CreatedAt, &c.UpdatedAt)
@@ -94,8 +114,16 @@ func (r *coursePostgresRepository) FindByID(ctx context.Context, id int64) (mode
 }
 
 func (r *coursePostgresRepository) CountTerisi(ctx context.Context, courseID int64) (int, error) {
+	return countTerisi(ctx, r.pool, courseID)
+}
+
+func (r *coursePostgresRepository) CountTerisiWithTx(ctx context.Context, tx pgx.Tx, courseID int64) (int, error) {
+	return countTerisi(ctx, tx, courseID)
+}
+
+func countTerisi(ctx context.Context, q queryRower, courseID int64) (int, error) {
 	var total int
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		"SELECT COUNT(*) FROM enrollments WHERE course_id = $1", courseID,
 	).Scan(&total)
 	if err != nil {
