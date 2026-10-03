@@ -16,6 +16,7 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (model.User, error)
 	FindByID(ctx context.Context, id int64) (model.User, error)
 	Create(ctx context.Context, u model.User) (model.User, error)
+	CreateWithTx(ctx context.Context, tx pgx.Tx, u model.User) (model.User, error)
 }
 
 type userPostgresRepository struct {
@@ -57,7 +58,19 @@ func (r *userPostgresRepository) FindByID(ctx context.Context, id int64) (model.
 }
 
 func (r *userPostgresRepository) Create(ctx context.Context, u model.User) (model.User, error) {
-	err := r.pool.QueryRow(ctx,
+	return createUser(ctx, r.pool, u)
+}
+
+func (r *userPostgresRepository) CreateWithTx(ctx context.Context, tx pgx.Tx, u model.User) (model.User, error) {
+	return createUser(ctx, tx, u)
+}
+
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func createUser(ctx context.Context, q queryRower, u model.User) (model.User, error) {
+	err := q.QueryRow(ctx,
 		`INSERT INTO users (email, password, role)
 		 VALUES ($1, $2, $3)
 		 RETURNING id, created_at, updated_at`,

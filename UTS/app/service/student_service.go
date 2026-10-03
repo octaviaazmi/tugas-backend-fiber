@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"siakad-mini-fiber/app/model"
 	"siakad-mini-fiber/app/repository"
@@ -31,6 +32,7 @@ func hitungBatasSKS(ipk float64) int {
 }
 
 type StudentService struct {
+	pool     *pgxpool.Pool
 	students repository.StudentRepository
 	users    repository.UserRepository
 	courses  repository.CourseRepository
@@ -38,12 +40,19 @@ type StudentService struct {
 }
 
 func NewStudentService(
+	pool *pgxpool.Pool,
 	students repository.StudentRepository,
 	users repository.UserRepository,
 	courses repository.CourseRepository,
 	enrolls repository.EnrollmentRepository,
 ) *StudentService {
-	return &StudentService{students: students, users: users, courses: courses, enrolls: enrolls}
+	return &StudentService{
+		pool:     pool,
+		students: students,
+		users:    users,
+		courses:  courses,
+		enrolls:  enrolls,
+	}
 }
 
 // GET /students
@@ -111,8 +120,14 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memproses password")
 	}
 
-	// Create user
-	user, err := s.users.Create(ctx, model.User{
+	// Transaction: user + student harus berhasil bersamaan
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
+	}
+	defer tx.Rollback(ctx)
+
+	user, err := s.users.CreateWithTx(ctx, tx, model.User{
 		Email:    req.Email,
 		Password: hash,
 		Role:     "mahasiswa",
@@ -124,8 +139,7 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal menyimpan user")
 	}
 
-	// Create student
-	student, err := s.students.Create(ctx, model.Student{
+	student, err := s.students.CreateWithTx(ctx, tx, model.Student{
 		UserID:      user.ID,
 		NIM:         req.NIM,
 		Nama:        req.Nama,
@@ -138,6 +152,10 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 			return helper.FailValidation(c, map[string]string{"nim": "NIM sudah terdaftar"})
 		}
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal menyimpan mahasiswa")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
 	return helper.Created(c, "Mahasiswa berhasil ditambahkan", fiber.Map{
@@ -171,12 +189,10 @@ func (s *StudentService) Detail(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Cek ownership
 	if current.Role == "mahasiswa" && student.UserID != current.UserID {
 		return helper.Fail(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	// Ambil MK yang diambil
 	enrollments, err := s.enrolls.FindByStudent(ctx, student.ID)
 	if err != nil {
 		enrollments = nil

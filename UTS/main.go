@@ -64,9 +64,9 @@ func main() {
 	)
 
 	authService := service.NewAuthService(userRepo, studentRepo, jwtManager)
-	studentService := service.NewStudentService(studentRepo, userRepo, courseRepo, enrollmentRepo)
+	studentService := service.NewStudentService(pool, studentRepo, userRepo, courseRepo, enrollmentRepo)
 	courseService := service.NewCourseService(courseRepo)
-	enrollmentService := service.NewEnrollmentService(enrollmentRepo, studentRepo, courseRepo)
+	enrollmentService := service.NewEnrollmentService(pool, enrollmentRepo, studentRepo, courseRepo)
 
 	// ---- seeder ----
 	if err := seeder.Run(ctx, pool, studentRepo, courseRepo); err != nil {
@@ -91,12 +91,10 @@ func main() {
 		EnrollmentService: enrollmentService,
 	})
 
-	// handler 404 terakhir
 	app.Use(func(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusNotFound, "Endpoint tidak ditemukan")
 	})
 
-	// ---- graceful shutdown ----
 	port := config.GetEnv("APP_PORT", "8080")
 	go func() {
 		logger.Info("server berjalan", slog.String("port", port))

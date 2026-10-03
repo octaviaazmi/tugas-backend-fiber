@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +16,7 @@ type StudentRepository interface {
 	FindByID(ctx context.Context, id int64) (model.Student, error)
 	FindByUserID(ctx context.Context, userID int64) (model.Student, error)
 	Create(ctx context.Context, s model.Student) (model.Student, error)
+	CreateWithTx(ctx context.Context, tx pgx.Tx, s model.Student) (model.Student, error)
 	Update(ctx context.Context, s model.Student) (model.Student, error)
 	SoftDelete(ctx context.Context, id int64) error
 }
@@ -49,14 +49,11 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.Student
 		where += fmt.Sprintf(" AND (nim ILIKE $%d OR nama ILIKE $%d)", n, n)
 	}
 
-	// Count total
 	var total int64
-	countQuery := "SELECT COUNT(*) FROM students" + where
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM students"+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("menghitung student: %w", err)
 	}
 
-	// Order
 	orderBy := "id ASC"
 	switch q.Sort {
 	case "nama":
@@ -65,7 +62,6 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.Student
 		orderBy = "ipk_terakhir DESC"
 	}
 
-	// Pagination
 	args = append(args, q.PerPage, (q.Page-1)*q.PerPage)
 	limitIdx := len(args) - 1
 	offsetIdx := len(args)
@@ -134,7 +130,15 @@ func (r *studentPostgresRepository) FindByUserID(ctx context.Context, userID int
 }
 
 func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student) (model.Student, error) {
-	err := r.pool.QueryRow(ctx,
+	return createStudent(ctx, r.pool, s)
+}
+
+func (r *studentPostgresRepository) CreateWithTx(ctx context.Context, tx pgx.Tx, s model.Student) (model.Student, error) {
+	return createStudent(ctx, tx, s)
+}
+
+func createStudent(ctx context.Context, q queryRower, s model.Student) (model.Student, error) {
+	err := q.QueryRow(ctx,
 		`INSERT INTO students (user_id, nim, nama, prodi, angkatan, ipk_terakhir)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id, created_at, updated_at`,
@@ -182,5 +186,3 @@ func (r *studentPostgresRepository) SoftDelete(ctx context.Context, id int64) er
 	}
 	return nil
 }
-
-var _ = strings.TrimSpace
