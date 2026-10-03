@@ -24,24 +24,20 @@ type Dependencies struct {
 func Register(app *fiber.App, deps Dependencies) {
 	api := app.Group("/api/v1")
 
-	// ---- publik ----
 	api.Get("/health", healthCheck(deps.Pool))
 
-	// ---- authentication ----
 	auth := api.Group("/auth", middleware.RequireJSON)
-	auth.Post("/login", deps.AuthService.Login)
+	auth.Post("/login", middleware.LoginRateLimiter(), deps.AuthService.Login)
 
 	authed := api.Group("/auth", middleware.RequireAuth(deps.JWT))
 	authed.Get("/me", deps.AuthService.Me)
 
-	// ---- wajib login ----
 	students := api.Group("/students", middleware.RequireJSON, middleware.RequireAuth(deps.JWT))
 	students.Get("/:id", deps.StudentService.Detail)
 
 	courses := api.Group("/courses", middleware.RequireJSON, middleware.RequireAuth(deps.JWT))
 	courses.Get("/", deps.CourseService.List)
 
-	// ---- admin only ----
 	admin := api.Group("/students",
 		middleware.RequireJSON,
 		middleware.RequireAuth(deps.JWT),
@@ -52,7 +48,6 @@ func Register(app *fiber.App, deps Dependencies) {
 	admin.Put("/:id", deps.StudentService.Update)
 	admin.Delete("/:id", deps.StudentService.Delete)
 
-	// ---- mahasiswa only ----
 	mhs := api.Group("/enrollments",
 		middleware.RequireJSON,
 		middleware.RequireAuth(deps.JWT),
