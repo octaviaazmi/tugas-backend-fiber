@@ -1,0 +1,28 @@
+basePath: /api/v1
+host: localhost:8080
+info:
+  contact: {}
+  description: Ini adalah dokumentasi API untuk Modul 12.
+  title: API KRS Praktikum Backend Lanjut
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Mengembalikan status server apakah berjalan atau tidak
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Cek status server
+      tags:
+      - health
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
